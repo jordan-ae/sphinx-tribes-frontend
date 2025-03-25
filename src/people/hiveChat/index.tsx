@@ -459,6 +459,36 @@ const DragTooltip = styled.div<{ visible: boolean }>`
   z-index: 101;
 `;
 
+const MentionDropdown = styled.div`
+  position: fixed;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 160px;
+  max-height: 216px;
+  overflow-y: auto;
+  padding: 6px 0;
+  &.mention-dropdown, &.command-dropdown {
+    display: block;
+  }
+`;
+
+const MentionOption = styled.div`
+  padding: 10px 16px;
+  cursor: pointer;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: #202124;
+  transition: background-color 0.15s ease;
+  &:hover {
+    background: #f8f9fa;
+  }
+`;
+
 const connectToLogWebSocket = (
   projectId: string,
   chatId: string,
@@ -562,6 +592,20 @@ export const HiveChatView: React.FC = observer(() => {
   const startViewerWidthRef = useRef(0);
   const [showTooltip, setShowTooltip] = useState(false);
   const dividerRef = useRef<HTMLDivElement>(null);
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
+  const mentionOptions = [
+    { label: 'tribes', value: 'tribes' },
+    { label: 'build', value: 'build' },
+    { label: 'chat', value: 'chat' },
+    { label: 'help', value: 'help' }
+  ];
+  const [showCommandDropdown, setShowCommandDropdown] = useState(false);
+  const [commandPosition, setCommandPosition] = useState({ top: 0, left: 0 });
+  const commandOptions = [
+    { label: 'leaderboard', value: 'leaderboard' },
+    { label: 'sats', value: 'sats' }
+  ];
   useBrowserTabTitle('Hive Chat');
 
   if (isVerboseLoggingEnabled) {
@@ -1003,7 +1047,53 @@ export const HiveChatView: React.FC = observer(() => {
   };
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setMessage(e.target.value);
+    const {value} = e.target;
+    setMessage(value);
+
+    const cursorPos = e.target.selectionStart;
+
+    if (value[cursorPos - 1] === '@') {
+      const rect = e.target.getBoundingClientRect();
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+
+      const spaceBelow = window.innerHeight - (rect.top + rect.height);
+      const dropdownHeight = Math.min(mentionOptions.length * 38, 216);
+
+      const positionAbove = spaceBelow < dropdownHeight;
+      
+      setMentionPosition({
+        top: positionAbove 
+          ? rect.top + scrollTop - dropdownHeight - 12
+          : rect.top + scrollTop + 38,
+        left: rect.left + 8
+      });
+      setShowMentionDropdown(true);
+      setShowCommandDropdown(false);
+    }
+
+    else if (value[cursorPos - 1] === '/') {
+      const rect = e.target.getBoundingClientRect();
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+
+      const spaceBelow = window.innerHeight - (rect.top + rect.height);
+      const dropdownHeight = Math.min(commandOptions.length * 36, 216);
+
+      const positionAbove = spaceBelow < dropdownHeight;
+      
+      setCommandPosition({
+        top: positionAbove 
+          ? rect.top + scrollTop - dropdownHeight - 12
+          : rect.top + scrollTop + 36,
+        left: rect.left + 8
+      });
+      setShowCommandDropdown(true);
+      setShowMentionDropdown(false);
+    }
+    else {
+      setShowMentionDropdown(false);
+      setShowCommandDropdown(false);
+    }
+
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
   };
@@ -1217,6 +1307,59 @@ export const HiveChatView: React.FC = observer(() => {
     };
   }, [chatSectionWidth, viewerSectionWidth]);
 
+  const handleMentionSelect = (option: string) => {
+    const textarea = document.querySelector('textarea');
+    if (textarea) {
+      const cursorPos = textarea.selectionStart;
+      const currentValue = textarea.value;
+      
+      const newValue = `${currentValue.slice(0, cursorPos) + option  } ${  currentValue.slice(cursorPos)}`;
+      setMessage(newValue);
+      
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = cursorPos + option.length + 1;
+        textarea.focus();
+      }, 0);
+    }
+    setShowMentionDropdown(false);
+  };
+
+  const handleCommandSelect = (option: string) => {
+    const textarea = document.querySelector('textarea');
+    if (textarea) {
+      const cursorPos = textarea.selectionStart;
+      const currentValue = textarea.value;
+      
+      const newValue = `${currentValue.slice(0, cursorPos) + option  } ${  currentValue.slice(cursorPos)}`;
+      setMessage(newValue);
+
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = cursorPos + option.length + 1;
+        textarea.focus();
+      }, 0);
+    }
+    setShowCommandDropdown(false);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const dropdown = document.querySelector('.command-dropdown, .mention-dropdown');
+      
+      if (dropdown && !dropdown.contains(event.target as Node)) {
+        setShowMentionDropdown(false);
+        setShowCommandDropdown(false);
+      }
+    };
+
+    if (showMentionDropdown || showCommandDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMentionDropdown, showCommandDropdown]);
+
   if (loading) {
     return (
       <Container collapsed={collapsed} ref={containerRef}>
@@ -1345,6 +1488,44 @@ export const HiveChatView: React.FC = observer(() => {
                   placeholder="Type your message..."
                   disabled={isSending}
                 />
+                {showMentionDropdown && (
+                  <MentionDropdown 
+                    className="mention-dropdown"
+                    style={{ 
+                      top: mentionPosition.top,
+                      left: mentionPosition.left,
+                      zIndex: 1000 
+                    }}
+                  >
+                    {mentionOptions.map((option) => (
+                      <MentionOption
+                        key={option.value}
+                        onClick={() => handleMentionSelect(option.value)}
+                      >
+                        {option.label}
+                      </MentionOption>
+                    ))}
+                  </MentionDropdown>
+                )}
+                {showCommandDropdown && (
+                  <MentionDropdown 
+                    className="command-dropdown"
+                    style={{ 
+                      top: commandPosition.top,
+                      left: commandPosition.left,
+                      zIndex: 1000 
+                    }}
+                  >
+                    {commandOptions.map((option) => (
+                      <MentionOption
+                        key={option.value}
+                        onClick={() => handleCommandSelect(option.value)}
+                      >
+                        {option.label}
+                      </MentionOption>
+                    ))}
+                  </MentionDropdown>
+                )}
                 {isPdfUploadEnabled && (
                   <AttachButton onClick={() => setIsUploadModalOpen(true)} disabled={isSending}>
                     Attach
